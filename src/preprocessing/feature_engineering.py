@@ -12,17 +12,17 @@ Key capabilities include:
 
 import numpy as np
 import pandas as pd
-import geopandas as gpd
+import geopandas as gpd # type: ignore
 from scipy.spatial import cKDTree, Voronoi, voronoi_plot_2d
 from scipy.ndimage import gaussian_filter, sobel
 from scipy.interpolate import griddata, RectBivariateSpline
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
-from shapely.geometry import Point, LineString, Polygon
-from shapely.ops import nearest_points
+from shapely.geometry import Point, LineString, Polygon # type: ignore
+from shapely.ops import nearest_points # type: ignore
 import math
 import datetime
-import networkx as nx
+import networkx as nx # type: ignore
 from sklearn.neighbors import KernelDensity
 from sklearn.preprocessing import StandardScaler
 import pickle
