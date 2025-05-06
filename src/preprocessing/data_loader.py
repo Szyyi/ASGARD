@@ -16,11 +16,11 @@ import os
 import datetime
 import numpy as np
 import pandas as pd
-import geopandas as gpd
-import rasterio
-from rasterio.transform import from_origin
+import geopandas as gpd # type: ignore
+import rasterio # type: ignore
+from rasterio.transform import from_origin # type: ignore
 from scipy.interpolate import griddata
-from shapely.geometry import Point
+from shapely.geometry import Point # type: ignore
 
 
 class DataLoader:
