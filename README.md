@@ -192,12 +192,7 @@ Planned improvements for future versions:
 
 ## Project Team
 
-- **Lead Developer**: Szymon Procak & Owen Evason
-
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+- **Lead Developers**: Szymon Procak & Owen Evason
 
 ## Acknowledgments
 
