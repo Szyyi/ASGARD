@@ -11,7 +11,7 @@ Key capabilities include:
 """
 
 import numpy as np
-import pandas as pd
+import pandas as pd # type: ignore
 import geopandas as gpd # type: ignore
 from scipy.spatial import cKDTree, Voronoi, voronoi_plot_2d
 from scipy.ndimage import gaussian_filter, sobel

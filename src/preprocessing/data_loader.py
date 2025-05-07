@@ -15,7 +15,7 @@ for development and testing purposes.
 import os
 import datetime
 import numpy as np
-import pandas as pd
+import pandas as pd # type: ignore
 import geopandas as gpd # type: ignore
 import rasterio # type: ignore
 from rasterio.transform import from_origin # type: ignore

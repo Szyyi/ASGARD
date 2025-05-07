@@ -13,7 +13,7 @@ Key capabilities:
 """
 
 import numpy as np
-import pandas as pd
+import pandas as pd # type: ignore
 import networkx as nx # type: ignore
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
@@ -29,7 +29,7 @@ import os
 import math
 import time
 from collections import defaultdict, Counter
-from tqdm import tqdm
+from tqdm import tqdm # type: ignore
 import warnings
 warnings.filterwarnings('ignore')
 
