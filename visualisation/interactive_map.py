@@ -19,8 +19,10 @@ import folium # type: ignore
 from folium.plugins import ( # type: ignore
     HeatMap, MarkerCluster, MeasureControl, TimestampedGeoJson,
     MousePosition, Draw, Fullscreen, MiniMap, FloatImage,
-    DualMap, HeatMapWithTime, TimeDimension, AntPath
+    DualMap, HeatMapWithTime, AntPath
 )
+# Removed TimeDimension from imports as it's not available in current folium version
+
 import pandas as pd # type: ignore
 import numpy as np
 import matplotlib.pyplot as plt
@@ -136,7 +138,7 @@ class InteractiveMap:
             print("Interactive Map module initialized")
     
     def create_base_map(self, center=None, zoom_start=None, width=None, height=None, 
-                        tiles=None, attr=None, control_scale=True):
+                    tiles=None, attr=None, control_scale=True):
         """
         Create a base map with optional controls.
         
@@ -173,23 +175,48 @@ class InteractiveMap:
         height = height if height is not None else self.config['map_height']
         tiles = tiles if tiles is not None else self.config['map_style']
         
+        # Ensure width and height are percentages
+        if isinstance(width, str) and width.endswith('px'):
+            width = "100%"
+        if isinstance(height, str) and height.endswith('px'):
+            height = "100%"
+        
+        # Default attribution
+        default_attr = "Map data &copy; <a href='https://www.openstreetmap.org/'>OpenStreetMap</a> contributors"
+        attr = attr if attr is not None else default_attr
+        
+        # Map of tile layers with their attributions
+        tile_attributions = {
+            'OpenStreetMap': "Map data &copy; <a href='https://www.openstreetmap.org/'>OpenStreetMap</a> contributors",
+            'Stamen Terrain': "Map tiles by <a href='http://stamen.com'>Stamen Design</a>, under <a href='http://creativecommons.org/licenses/by/3.0'>CC BY 3.0</a>. Data by <a href='http://openstreetmap.org'>OpenStreetMap</a>, under <a href='http://creativecommons.org/licenses/by-sa/3.0'>CC BY SA</a>",
+            'Esri Satellite': "Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community",
+            'CartoDB dark_matter': "&copy; <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a> &copy; <a href='http://cartodb.com/attributions'>CartoDB</a>",
+            'CartoDB positron': "&copy; <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a> &copy; <a href='http://cartodb.com/attributions'>CartoDB</a>",
+            'Stamen Topo': "Map tiles by <a href='http://stamen.com'>Stamen Design</a>, under <a href='http://creativecommons.org/licenses/by/3.0'>CC BY 3.0</a>. Data by <a href='http://openstreetmap.org'>OpenStreetMap</a>, under <a href='http://creativecommons.org/licenses/by-sa/3.0'>CC BY SA</a>"
+        }
+        
         # Get tile layer name if provided as key
         if tiles in self.config['map_tiles']:
+            tile_key = tiles
             tiles = self.config['map_tiles'][tiles]
+            # Get corresponding attribution
+            if tiles in tile_attributions:
+                attr = tile_attributions[tiles]
         
         # Create map
         m = folium.Map(location=center, 
-                      zoom_start=zoom_start, 
-                      tiles=tiles,
-                      attr=attr,
-                      width=width, 
-                      height=height,
-                      control_scale=control_scale)
+                    zoom_start=zoom_start, 
+                    tiles=tiles,
+                    attr=attr,
+                    width=width, 
+                    height=height,
+                    control_scale=control_scale)
         
         # Add additional base tile layers for quick switching
         for tile_key, tile_name in self.config['map_tiles'].items():
             if tile_name != tiles:  # Skip the default tile we already added
-                folium.TileLayer(tile_name).add_to(m)
+                tile_attr = tile_attributions.get(tile_name, default_attr)
+                folium.TileLayer(tile_name, attr=tile_attr).add_to(m)
         
         # Add controls if configured
         if self.config['enable_measure']:
@@ -213,7 +240,7 @@ class InteractiveMap:
         return m
     
     def add_target_trails(self, m, target_ids=None, show_markers=True, show_labels=True, 
-                          animate=False, layer_name="Target Tracks"):
+                      animate=False, layer_name="Target Tracks"):
         """
         Add target trails to the map.
         
@@ -269,8 +296,12 @@ class InteractiveMap:
                 
                 # Create features for each point
                 for idx, row in target_data.iterrows():
-                    # Convert timestamp to Unix time (milliseconds)
-                    timestamp = int(row['timestamp'].timestamp() * 1000)
+                    # Convert timestamp to ISO format
+                    try:
+                        timestamp = row['timestamp'].strftime("%Y-%m-%dT%H:%M:%S")
+                    except:
+                        # If conversion fails, use current time
+                        timestamp = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
                     
                     # Create feature for point
                     point_feature = {
@@ -299,8 +330,12 @@ class InteractiveMap:
                     point1 = target_data.iloc[i]
                     point2 = target_data.iloc[i + 1]
                     
-                    # Use the later timestamp for the line
-                    timestamp = int(point2['timestamp'].timestamp() * 1000)
+                    # Use the later timestamp
+                    try:
+                        timestamp = point2['timestamp'].strftime("%Y-%m-%dT%H:%M:%S")
+                    except:
+                        # If conversion fails, use current time
+                        timestamp = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
                     
                     line_feature = {
                         'type': 'Feature',
@@ -322,32 +357,27 @@ class InteractiveMap:
                     }
                     features.append(line_feature)
             
-            # Create TimestampedGeoJson layer
-            time_options = {
-                'period': 'PT1M',  # 1 minute per animation step
-                'duration': f'PT{self.config["animation_duration"]}S',  # Animation duration
-                'speed': 10,  # Animation speed
-                'startTime': min(target_data['timestamp']).strftime('%Y-%m-%dT%H:%M:%S'),
-                'endTime': max(target_data['timestamp']).strftime('%Y-%m-%dT%H:%M:%S'),
-                'timeFormat': 'iso8601'
-            }
-            
-            TimestampedGeoJson(
-                {
-                    'type': 'FeatureCollection',
-                    'features': features
-                },
-                period='PT1M',
-                duration=f'PT{self.config["animation_duration"]}S',
-                transition_time=self.config["animation_duration"] * 1000 / len(features),
-                auto_play=True,
-                loop=True,
-                max_speed=1,
-                loop_button=True,
-                date_options='YYYY-MM-DD HH:mm',
-                time_slider_drag_update=True
-            ).add_to(target_group)
+            # Create TimestampedGeoJson layer - add directly to map
+            if features:
+                TimestampedGeoJson(
+                    {
+                        'type': 'FeatureCollection',
+                        'features': features
+                    },
+                    period='PT1M',
+                    duration=f'PT{self.config["animation_duration"]}S',
+                    transition_time=100,
+                    auto_play=True,
+                    loop=True,
+                    max_speed=1,
+                    loop_button=True,
+                    date_options='YYYY-MM-DD HH:mm',
+                    time_slider_drag_update=True
+                ).add_to(m)  # Add directly to map, not feature group
                 
+                # Add the non-animated elements to the feature group
+                target_group.add_to(m)
+                    
         else:
             # For static display, add polylines and markers
             for target_id in unique_targets:
@@ -483,9 +513,9 @@ class InteractiveMap:
                         icon=icon,
                         tooltip=f"Target {target_id} last known position"
                     ).add_to(target_group)
-        
-        # Add layer to map
-        target_group.add_to(m)
+            
+            # Add layer to map
+            target_group.add_to(m)
         
         return m
     
@@ -1307,8 +1337,8 @@ class InteractiveMap:
         return dual_map
     
     def create_dashboard_map(self, target_ids=None, time_horizons=None, methods=None,
-                           width="100%", height="800px", include_controls=True,
-                           include_terrain=True, include_land_use=True):
+                       width="100%", height="100%", include_controls=True,
+                       include_terrain=True, include_land_use=True):
         """
         Create a comprehensive dashboard map with multiple layers and controls.
         
@@ -1447,8 +1477,119 @@ class InteractiveMap:
         
         return m
     
+    def generate_map(self, output_file=None):
+        """
+        Generate an interactive map with all available data.
+        
+        Args:
+            output_file (str): Output filename for the map (optional)
+            
+        Returns:
+            folium.Map: Generated map
+        """
+        # Create dashboard map with all available data
+        # Ensure width and height are percentages for folium compatibility
+        m = self.create_dashboard_map(width="100%", height="100%")
+        
+        # Save to file if specified
+        if output_file is not None:
+            m.save(output_file)
+            if self.verbose:
+                print(f"Map saved to {output_file}")
+        
+        return m
+    
+    def _color_to_name(self, color):
+        """
+        Convert color to name for Folium icons.
+        
+        Args:
+            color (str): Color hex or name
+            
+        Returns:
+            str: Color name for Folium icon
+        """
+        # Map of common color hex to Folium icon names
+        folium_colors = {
+            '#FF0000': 'red',
+            '#008000': 'green',
+            '#0000FF': 'blue',
+            '#FFFF00': 'yellow',
+            '#FFA500': 'orange',
+            '#800080': 'purple',
+            '#A52A2A': 'brown',
+            '#000000': 'black',
+            '#FFFFFF': 'white',
+            '#808080': 'gray',
+            '#FFC0CB': 'pink',
+            'red': 'red',
+            'green': 'green',
+            'blue': 'blue',
+            'yellow': 'yellow',
+            'orange': 'orange',
+            'purple': 'purple',
+            'brown': 'brown',
+            'black': 'black',
+            'white': 'white',
+            'gray': 'gray',
+            'pink': 'pink'
+        }
+        
+        # Convert hex to name
+        if color in folium_colors:
+            return folium_colors[color]
+        
+        # Default to 'red' if color not found
+        return 'red'
+    
+    def _create_heading_icon(self, color, heading):
+        """
+        Create an HTML string for an icon showing heading.
+        
+        Args:
+            color (str): Color for the icon
+            heading (float): Heading angle in degrees
+            
+        Returns:
+            str: HTML for the icon
+        """
+        # Calculate the arrowhead coordinates
+        cx, cy = 15, 15  # Center of the circle
+        r = 12  # Radius
+        
+        # Convert heading from degrees to radians (0° is North, 90° is East)
+        angle_rad = math.radians(90 - heading)
+        
+        # Calculate arrow endpoint
+        arrow_x = cx + r * math.cos(angle_rad)
+        arrow_y = cy - r * math.sin(angle_rad)
+        
+        # Calculate arrowhead points
+        arrow_size = 5
+        arrow_angle1 = angle_rad + math.radians(150)
+        arrow_angle2 = angle_rad - math.radians(150)
+        
+        arrow_x1 = arrow_x + arrow_size * math.cos(arrow_angle1)
+        arrow_y1 = arrow_y - arrow_size * math.sin(arrow_angle1)
+        arrow_x2 = arrow_x + arrow_size * math.cos(arrow_angle2)
+        arrow_y2 = arrow_y - arrow_size * math.sin(arrow_angle2)
+        
+        # Create SVG for the icon
+        svg = f"""
+        <svg width="30" height="30" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="{cx}" cy="{cy}" r="{r}" fill="white" stroke="{color}" stroke-width="1" />
+            <line x1="{cx}" y1="{cy}" x2="{arrow_x}" y2="{arrow_y}" stroke="{color}" stroke-width="2" />
+            <line x1="{arrow_x}" y1="{arrow_y}" x2="{arrow_x1}" y2="{arrow_y1}" stroke="{color}" stroke-width="2" />
+            <line x1="{arrow_x}" y1="{arrow_y}" x2="{arrow_x2}" y2="{arrow_y2}" stroke="{color}" stroke-width="2" />
+        </svg>
+        """
+        
+        return svg
+
+    # This continues from the _create_heading_icon method that was interrupted
+
     def create_3d_terrain_map(self, center=None, zoom_start=None, target_id=None, prediction=None,
-                             width=800, height=600, exaggeration=1.5):
+                            width=800, height=600, exaggeration=1.5):
         """
         Create a 3D terrain map using Plotly.
         
@@ -1580,8 +1721,8 @@ class InteractiveMap:
                         y=target_data['latitude'],
                         z=target_data['elevation'] * exaggeration if 'elevation' in target_data.columns
                             else np.interp(target_data.index, 
-                                          np.arange(len(target_data)), 
-                                          np.linspace(elevs.min() + 10, elevs.max() + 10, len(target_data))),
+                                        np.arange(len(target_data)), 
+                                        np.linspace(elevs.min() + 10, elevs.max() + 10, len(target_data))),
                         mode='lines+markers',
                         line=dict(color=color, width=5),
                         marker=dict(size=5, color=color),
@@ -1668,7 +1809,7 @@ class InteractiveMap:
         )
         
         return fig
-    
+
     def save_map(self, m, filename=None, format='html'):
         """
         Save the map to a file.
@@ -1744,7 +1885,7 @@ class InteractiveMap:
             print(f"Saved map to {filename}")
         
         return filename
-    
+
     def create_map_comparison_html(self, maps, titles=None, layout="grid", width="100%", height="800px"):
         """
         Create an HTML page with multiple maps for comparison.
@@ -1993,9 +2134,9 @@ class InteractiveMap:
         """
         
         return html
-    
+
     def convert_to_geojson(self, feature_type='targets', target_ids=None, include_predictions=False,
-                          time_horizon=None, method=None, filename=None):
+                        time_horizon=None, method=None, filename=None):
         """
         Convert map data to GeoJSON format.
         
@@ -2093,258 +2234,6 @@ class InteractiveMap:
                     
                     geojson["features"].append(point_feature)
         
-        # Add blue forces if requested
-        if feature_type in ['targets', 'all'] and not self.blue_forces_df.empty:
-            # Get most recent position for each blue force
-            if 'timestamp' in self.blue_forces_df.columns:
-                blue_latest = self.blue_forces_df.sort_values('timestamp').groupby('blue_id').last().reset_index()
-            else:
-                blue_latest = self.blue_forces_df.copy()
-            
-            # Add point features for each blue force
-            for _, row in blue_latest.iterrows():
-                # Get blue force class
-                blue_class = row['blue_class'] if 'blue_class' in row else 'unknown'
-                
-                point_feature = {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": [row['longitude'], row['latitude']]
-                    },
-                    "properties": {
-                        "blue_id": row['blue_id'],
-                        "blue_class": blue_class,
-                        "type": "blue_force"
-                    }
-                }
-                
-                # Add timestamp if available
-                if 'timestamp' in row:
-                    point_feature["properties"]["timestamp"] = row['timestamp'].isoformat()
-                
-                # Add additional properties if available
-                if 'heading' in row:
-                    point_feature["properties"]["heading"] = float(row['heading'])
-                
-                geojson["features"].append(point_feature)
-        
-        # Add predictions if requested
-        if (feature_type in ['predictions', 'all'] or include_predictions) and self.predictions:
-            # Filter targets if target_ids provided
-            target_ids_to_use = target_ids if target_ids is not None else []
-            
-            # If no target_ids provided, use all targets
-            if not target_ids_to_use and not self.targets_df.empty:
-                if 'is_blue' in self.targets_df.columns:
-                    targets_subset = self.targets_df[self.targets_df['is_blue'] == 0].copy()
-                else:
-                    targets_subset = self.targets_df.copy()
-                
-                target_ids_to_use = sorted(targets_subset['target_id'].unique())
-            
-            # Add predictions for each target
-            for target_id in target_ids_to_use:
-                # Find matching prediction
-                pred = None
-                for key, p in self.predictions.items():
-                    if not isinstance(p, dict) or 'target_id' not in p:
-                        continue
-                    
-                    if p['target_id'] != target_id:
-                        continue
-                    
-                    if time_horizon is not None and 'minutes_ahead' in p:
-                        if p['minutes_ahead'] != time_horizon:
-                            continue
-                    
-                    if method is not None and 'method' in p:
-                        if p['method'] != method:
-                            continue
-                    
-                    pred = p
-                    break
-                
-                if pred is not None and 'density' in pred:
-                    # Extract prediction data
-                    lat_grid = pred['lat_grid']
-                    lon_grid = pred['lon_grid']
-                    density = pred['density']
-                    
-                    # Get metadata
-                    pred_time_horizon = pred.get('minutes_ahead', None)
-                    pred_method = pred.get('method', None)
-                    
-                    # Find maximum density point
-                    max_idx = np.argmax(density)
-                    max_i, max_j = np.unravel_index(max_idx, density.shape)
-                    max_lat = lat_grid[max_i]
-                    max_lon = lon_grid[max_j]
-                    
-                    # Add most likely position point
-                    point_feature = {
-                        "type": "Feature",
-                        "geometry": {
-                            "type": "Point",
-                            "coordinates": [max_lon, max_lat]
-                        },
-                        "properties": {
-                            "target_id": target_id,
-                            "type": "prediction_max",
-                            "time_horizon": pred_time_horizon,
-                            "method": pred_method,
-                            "probability": float(density[max_i, max_j])
-                        }
-                    }
-                    
-                    geojson["features"].append(point_feature)
-                    
-                    # Add confidence regions if available
-                    if 'confidence_regions' in pred:
-                        for level, region in pred['confidence_regions'].items():
-                            if 'points' in region and len(region['points']) >= 3:
-                                # Create polygon
-                                try:
-                                    from scipy.spatial import ConvexHull
-                                    hull = ConvexHull(region['points'])
-                                    hull_points = [region['points'][i] for i in hull.vertices]
-                                    
-                                    # Add polygon to GeoJSON
-                                    polygon_feature = {
-                                        "type": "Feature",
-                                        "geometry": {
-                                            "type": "Polygon",
-                                            "coordinates": [[[p[1], p[0]] for p in hull_points]]
-                                        },
-                                        "properties": {
-                                            "target_id": target_id,
-                                            "type": "confidence_region",
-                                            "confidence_level": float(level),
-                                            "time_horizon": pred_time_horizon,
-                                            "method": pred_method
-                                        }
-                                    }
-                                    
-                                    # Add area if available
-                                    if 'area_km2' in region:
-                                        polygon_feature["properties"]["area_km2"] = region['area_km2']
-                                    
-                                    geojson["features"].append(polygon_feature)
-                                except:
-                                    # Skip if convex hull fails
-                                    pass
-        
-        # Add terrain data if requested
-        if feature_type in ['terrain', 'all'] and not self.terrain_grid_df.empty:
-            if 'land_use_type' in self.terrain_grid_df.columns:
-                # Group by land use type
-                for land_use_type in self.terrain_grid_df['land_use_type'].unique():
-                    # Get points for this land use type
-                    type_points = self.terrain_grid_df[self.terrain_grid_df['land_use_type'] == land_use_type]
-                    
-                    # Try to create a polygon
-                    try:
-                        # Create points
-                        points = [Point(row['longitude'], row['latitude']) for _, row in type_points.iterrows()]
-                        
-                        # Buffer points to create areas
-                        areas = [p.buffer(0.001) for p in points]
-                        
-                        # Combine overlapping areas
-                        from shapely.ops import unary_union # type: ignore
-                        combined_areas = unary_union(areas)
-                        
-                        # Add to GeoJSON
-                        if hasattr(combined_areas, 'geoms'):
-                            # Multiple polygons
-                            for poly in combined_areas.geoms:
-                                # Convert to list of coordinates
-                                coords = [[[y, x] for x, y in zip(*poly.exterior.xy)]]
-                                
-                                # Create polygon feature
-                                polygon_feature = {
-                                    "type": "Feature",
-                                    "geometry": {
-                                        "type": "Polygon",
-                                        "coordinates": coords
-                                    },
-                                    "properties": {
-                                        "type": "land_use",
-                                        "land_use_type": land_use_type
-                                    }
-                                }
-                                
-                                geojson["features"].append(polygon_feature)
-                        else:
-                            # Single polygon
-                            coords = [[[y, x] for x, y in zip(*combined_areas.exterior.xy)]]
-                            
-                            # Create polygon feature
-                            polygon_feature = {
-                                "type": "Feature",
-                                "geometry": {
-                                    "type": "Polygon",
-                                    "coordinates": coords
-                                },
-                                "properties": {
-                                    "type": "land_use",
-                                    "land_use_type": land_use_type
-                                }
-                            }
-                            
-                            geojson["features"].append(polygon_feature)
-                    except:
-                        # If combining fails, add individual points
-                        for _, row in type_points.iterrows():
-                            point_feature = {
-                                "type": "Feature",
-                                "geometry": {
-                                    "type": "Point",
-                                    "coordinates": [row['longitude'], row['latitude']]
-                                },
-                                "properties": {
-                                    "type": "terrain_point",
-                                    "land_use_type": land_use_type
-                                }
-                            }
-                            
-                            # Add additional properties if available
-                            if 'elevation' in row:
-                                point_feature["properties"]["elevation"] = float(row['elevation'])
-                            
-                            if 'total_cost' in row:
-                                point_feature["properties"]["terrain_cost"] = float(row['total_cost'])
-                            
-                            if 'concealment' in row:
-                                point_feature["properties"]["concealment"] = float(row['concealment'])
-                            
-                            geojson["features"].append(point_feature)
-            else:
-                # Add terrain points
-                for _, row in self.terrain_grid_df.iterrows():
-                    point_feature = {
-                        "type": "Feature",
-                        "geometry": {
-                            "type": "Point",
-                            "coordinates": [row['longitude'], row['latitude']]
-                        },
-                        "properties": {
-                            "type": "terrain_point"
-                        }
-                    }
-                    
-                    # Add additional properties if available
-                    if 'elevation' in row:
-                        point_feature["properties"]["elevation"] = float(row['elevation'])
-                    
-                    if 'total_cost' in row:
-                        point_feature["properties"]["terrain_cost"] = float(row['total_cost'])
-                    
-                    if 'concealment' in row:
-                        point_feature["properties"]["concealment"] = float(row['concealment'])
-                    
-                    geojson["features"].append(point_feature)
-        
         # Save to file if filename provided
         if filename is not None:
             with open(filename, 'w') as f:
@@ -2355,191 +2244,3 @@ class InteractiveMap:
                 print(f"Saved GeoJSON to {filename}")
         
         return geojson
-    
-    def _create_heading_icon(self, color, heading):
-        """
-        Create an HTML string for an icon showing heading.
-        
-        Args:
-            color (str): Color for the icon
-            heading (float): Heading angle in degrees
-            
-        Returns:
-            str: HTML for the icon
-        """
-        # Calculate the arrowhead coordinates
-        cx, cy = 15, 15  # Center of the circle
-        r = 12  # Radius
-        
-        # Convert heading from degrees to radians (0° is North, 90° is East)
-        angle_rad = math.radians(90 - heading)
-        
-        # Calculate arrow endpoint
-        arrow_x = cx + r * math.cos(angle_rad)
-        arrow_y = cy - r * math.sin(angle_rad)
-        
-        # Calculate arrowhead points
-        arrow_size = 5
-        arrow_angle1 = angle_rad + math.radians(150)
-        arrow_angle2 = angle_rad - math.radians(150)
-        
-        arrow_x1 = arrow_x + arrow_size * math.cos(arrow_angle1)
-        arrow_y1 = arrow_y - arrow_size * math.sin(arrow_angle1)
-        arrow_x2 = arrow_x + arrow_size * math.cos(arrow_angle2)
-        arrow_y2 = arrow_y - arrow_size * math.sin(arrow_angle2)
-        
-        # Create SVG for the icon
-        svg = f"""
-        <svg width="30" height="30" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="{cx}" cy="{cy}" r="{r}" fill="white" stroke="{color}" stroke-width="1" />
-            <line x1="{cx}" y1="{cy}" x2="{arrow_x}" y2="{arrow_y}" stroke="{color}" stroke-width="2" />
-            <line x1="{arrow_x}" y1="{arrow_y}" x2="{arrow_x1}" y2="{arrow_y1}" stroke="{color}" stroke-width="2" />
-            <line x1="{arrow_x}" y1="{arrow_y}" x2="{arrow_x2}" y2="{arrow_y2}" stroke="{color}" stroke-width="2" />
-        </svg>
-        """
-        
-        return svg
-    
-    def _blend_colors(self, color1, color2, ratio):
-        """
-        Blend two colors based on the given ratio.
-        
-        Args:
-            color1 (str): First color (hex or name)
-            color2 (str): Second color (hex or name)
-            ratio (float): Blend ratio (0.0 to 1.0), 0 = full color1, 1 = full color2
-            
-        Returns:
-            str: Blended color in hex format
-        """
-        # Convert color names to hex
-        color1 = self._name_to_hex(color1)
-        color2 = self._name_to_hex(color2)
-        
-        # Convert hex to RGB
-        r1, g1, b1 = int(color1[1:3], 16), int(color1[3:5], 16), int(color1[5:7], 16)
-        r2, g2, b2 = int(color2[1:3], 16), int(color2[3:5], 16), int(color2[5:7], 16)
-        
-        # Blend colors
-        r = int(r1 * (1 - ratio) + r2 * ratio)
-        g = int(g1 * (1 - ratio) + g2 * ratio)
-        b = int(b1 * (1 - ratio) + b2 * ratio)
-        
-        # Convert back to hex
-        return f"#{r:02x}{g:02x}{b:02x}"
-    
-    def _name_to_hex(self, color):
-        """
-        Convert color name to hex code.
-        
-        Args:
-            color (str): Color name or hex code
-            
-        Returns:
-            str: Hex color code
-        """
-        # Return if already hex
-        if color.startswith('#'):
-            return color
-        
-        # Common color names to hex mapping
-        color_map = {
-            'red': '#FF0000',
-            'green': '#008000',
-            'blue': '#0000FF',
-            'yellow': '#FFFF00',
-            'cyan': '#00FFFF',
-            'magenta': '#FF00FF',
-            'black': '#000000',
-            'white': '#FFFFFF',
-            'gray': '#808080',
-            'orange': '#FFA500',
-            'purple': '#800080',
-            'brown': '#A52A2A',
-            'pink': '#FFC0CB'
-        }
-        
-        # Return hex if found in map
-        if color.lower() in color_map:
-            return color_map[color.lower()]
-        
-        # Default to black if not found
-        return '#000000'
-    
-    def _color_to_name(self, color):
-        """
-        Convert color to name for Folium icons.
-        
-        Args:
-            color (str): Color hex or name
-            
-        Returns:
-            str: Color name for Folium icon
-        """
-        # Map of common color hex to Folium icon names
-        folium_colors = {
-            '#FF0000': 'red',
-            '#008000': 'green',
-            '#0000FF': 'blue',
-            '#FFFF00': 'yellow',
-            '#FFA500': 'orange',
-            '#800080': 'purple',
-            '#A52A2A': 'brown',
-            '#000000': 'black',
-            '#FFFFFF': 'white',
-            '#808080': 'gray',
-            '#FFC0CB': 'pink',
-            'red': 'red',
-            'green': 'green',
-            'blue': 'blue',
-            'yellow': 'yellow',
-            'orange': 'orange',
-            'purple': 'purple',
-            'brown': 'brown',
-            'black': 'black',
-            'white': 'white',
-            'gray': 'gray',
-            'pink': 'pink'
-        }
-        
-        # Convert hex to name
-        if color in folium_colors:
-            return folium_colors[color]
-        
-        # Default to 'red' if color not found
-        return 'red'
-    
-    def _filter_prediction(self, predictions, target_id, time_horizon=None, method=None):
-        """
-        Filter predictions by target ID, time horizon, and method.
-        
-        Args:
-            predictions (dict): Dictionary of prediction results
-            target_id: Target ID to filter for
-            time_horizon (int): Time horizon in minutes (optional)
-            method (str): Prediction method (optional)
-            
-        Returns:
-            dict: Filtered prediction data
-        """
-        if not predictions:
-            return None
-        
-        for key, pred in predictions.items():
-            if not isinstance(pred, dict) or 'target_id' not in pred:
-                continue
-            
-            if pred['target_id'] != target_id:
-                continue
-            
-            if time_horizon is not None and 'minutes_ahead' in pred:
-                if pred['minutes_ahead'] != time_horizon:
-                    continue
-            
-            if method is not None and 'method' in pred:
-                if pred['method'] != method:
-                    continue
-            
-            return pred
-        
-        return None
