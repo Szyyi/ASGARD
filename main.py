@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import sys
+import datetime
+import webbrowser
 
 # Add current directory to path to ensure imports work
 sys.path.append('.')
@@ -14,6 +16,7 @@ from models.terrain_analyser import TerrainAnalyser
 from models.movement_predictor import MovementPredictor
 from models.evaluation import PredictionEvaluator
 from visualisation.visualisation import Visualization
+from visualisation.interactive_map import InteractiveMap
 
 def main():
     print("Starting ASGARD predictive tracking system...")
@@ -121,22 +124,44 @@ def main():
     # Evaluate predictions if we have an evaluation module
     print("\nEvaluating predictions...")
     try:
+        # Check for available methods in PredictionEvaluator
         evaluator = PredictionEvaluator(
             targets_df=targets,
-            predictions=prediction_results,
-            terrain_grid=terrain_grid
+            predictions=prediction_results
         )
         
-        evaluation_results = evaluator.evaluate_all_predictions()
-        evaluator.print_evaluation_summary()
+        # Check for available methods
+        available_methods = [method for method in dir(evaluator) if not method.startswith('_')]
+        print(f"Available evaluation methods: {available_methods}")
+        
+        # Use available evaluation methods
+        if hasattr(evaluator, 'evaluate'):
+            evaluation_results = evaluator.evaluate()
+            print("Used evaluate() method")
+        elif hasattr(evaluator, 'evaluate_predictions'):
+            evaluation_results = evaluator.evaluate_predictions()
+            print("Used evaluate_predictions() method")
+        else:
+            print("No suitable evaluation method found")
+        
+        # Try to print summary if available
+        if hasattr(evaluator, 'print_summary'):
+            evaluator.print_summary()
+        elif hasattr(evaluator, 'summary'):
+            print(evaluator.summary())
+        elif hasattr(evaluator, 'get_summary'):
+            print(evaluator.get_summary())
     except Exception as e:
         print(f"Warning: Could not perform evaluation: {str(e)}")
+        import traceback
+        traceback.print_exc()
     
-    # Visualize results
-    print("\nVisualizing results...")
+    # Create output directory
     output_dir = "output"
     os.makedirs(output_dir, exist_ok=True)
     
+    # Visualize results with static images
+    print("\nVisualizing results (static images)...")
     try:
         # Initialize visualization class with proper parameters
         viz = Visualization(
@@ -151,30 +176,93 @@ def main():
             for target_id in prediction_results[horizon]:
                 pred_data = prediction_results[horizon][target_id]
                 # Create visualization
-                fig = viz.plot_prediction_heatmap(pred_data)
+                ax = viz.plot_prediction_heatmap(pred_data)
+                # Get the parent figure of the axes
+                fig = ax.figure
                 # Save the figure
                 output_file = os.path.join(output_dir, f"prediction_{target_id}_{horizon}min.png")
-                plt.savefig(output_file, dpi=150, bbox_inches='tight')
+                fig.savefig(output_file, dpi=150, bbox_inches='tight')
                 plt.close(fig)
                 print(f"  Visualization saved to {output_file}")
     except Exception as e:
-        print(f"Warning: Could not generate visualizations: {str(e)}")
+        print(f"Warning: Could not generate static visualizations: {str(e)}")
+        import traceback
+        traceback.print_exc()
+    
+    # Generate interactive map visualization
+    print("\nGenerating interactive map...")
+    try:
+        # Prepare predictions in correct format
+        formatted_predictions = {}
+        for horizon in prediction_results:
+            for target_id in prediction_results[horizon]:
+                pred_key = f"{target_id}_{horizon}"
+                formatted_predictions[pred_key] = prediction_results[horizon][target_id]
+        
+        # Create interactive map
+        interactive_map = InteractiveMap(
+            targets_df=targets,
+            blue_forces_df=blue_forces,
+            terrain_grid_df=terrain_grid,
+            predictions=formatted_predictions
+        )
+
+        # Generate and save the interactive map
+        map_file = os.path.join(output_dir, "interactive_map.html")
+        # Force percentage values for width and height
+        m = interactive_map.generate_map(output_file=map_file)
+        print(f"Interactive map saved to {map_file}")
+        
+        # Try to open the map in the default browser
+        try:
+            webbrowser.open('file://' + os.path.abspath(map_file))
+            print("Interactive map opened in browser")
+        except Exception as e:
+            print(f"Warning: Could not open map in browser: {str(e)}")
+            print(f"Please open {map_file} manually")
+    except Exception as e:
+        print(f"Warning: Could not generate interactive map: {str(e)}")
         import traceback
         traceback.print_exc()
     
     # Generate terrain report
     print("\nGenerating terrain report...")
     try:
-        terrain_report = terrain_analyser.generate_terrain_report(target_type='vehicle')
+        # Custom implementation for terrain report
+        terrain_features = {
+            'elevation_range': {
+                'min': float(terrain_grid['elevation'].min()) if 'elevation' in terrain_grid.columns else 0,
+                'max': float(terrain_grid['elevation'].max()) if 'elevation' in terrain_grid.columns else 0,
+                'mean': float(terrain_grid['elevation'].mean()) if 'elevation' in terrain_grid.columns else 0
+            },
+            'land_use_summary': {},
+            'report_time': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'grid_resolution': grid_resolution,
+            'analysis_area': {
+                'min_x': float(terrain_grid['x'].min()) if 'x' in terrain_grid.columns else 0,
+                'max_x': float(terrain_grid['x'].max()) if 'x' in terrain_grid.columns else 0,
+                'min_y': float(terrain_grid['y'].min()) if 'y' in terrain_grid.columns else 0,
+                'max_y': float(terrain_grid['y'].max()) if 'y' in terrain_grid.columns else 0
+            }
+        }
+        
+        # Try to get land use summary if available
+        if 'land_use' in terrain_grid.columns:
+            land_use_counts = terrain_grid['land_use'].value_counts().to_dict()
+            terrain_features['land_use_summary'] = {str(k): int(v) for k, v in land_use_counts.items()}
+        
+        # Save as terrain report
         report_file = os.path.join(output_dir, "terrain_report.json")
         
         import json
         with open(report_file, 'w') as f:
-            json.dump(terrain_report, f, indent=2, default=str)
+            json.dump(terrain_features, f, indent=2, default=str)
         
         print(f"Terrain report saved to {report_file}")
     except Exception as e:
         print(f"Warning: Could not generate terrain report: {str(e)}")
+        import traceback
+        traceback.print_exc()
     
     print("\nASGARD system execution complete.")
 
